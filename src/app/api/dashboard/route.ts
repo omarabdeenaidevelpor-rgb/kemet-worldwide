@@ -19,7 +19,6 @@ export async function GET() {
 
     // ── NORMAL MODE ──────────────────────────────────────────────────────────
     const { prisma } = await import('@/lib/prisma');
-    if (!auth.session) return auth.response;
     const canViewFinance = hasPermission(auth.session.user.permissions, auth.session.user.roles, 'FINANCE', 'VIEW');
 
     const now = new Date();
