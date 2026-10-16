@@ -1,0 +1,10 @@
+warning: in the working copy of '.push-output.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'do-push2.bat', LF will be replaced by CRLF the next time Git touches it
+[main 528e20a] fix: resolve TypeScript build errors
+ 4 files changed, 39 insertions(+), 28 deletions(-)
+ create mode 100644 .out2.txt
+ delete mode 100644 .push-result.txt
+ create mode 100644 do-push2.bat
+To https://github.com/omarabdeenaidevelpor-rgb/kemet-worldwide.git
+ + 1e6f722...528e20a main -> main (forced update)
+PUSH_DONE=0

@@ -1,0 +1,4 @@
+=== STATUS ===
+ M .out2.txt
+?? .git-out.txt
+?? do-git.bat
