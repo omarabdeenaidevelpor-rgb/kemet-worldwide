@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-import { createAuditLog, getClientInfo } from '@/lib/audit';
+import { randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const DEMO_MODE = !process.env.DATABASE_URL;
 
 const CreateEmployeeSchema = z.object({
   name: z.string().min(2),
@@ -25,6 +26,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'FORBIDDEN' }, { status: 403 });
     }
 
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      const { DEMO_EMPLOYEES } = await import('@/lib/demo-data');
+      return NextResponse.json({ data: DEMO_EMPLOYEES });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
     const employees = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
@@ -53,6 +62,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const parsed = CreateEmployeeSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() }, { status: 400 });
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      return NextResponse.json({ data: { id: randomUUID(), name: parsed.data.name, email: parsed.data.email, isActive: true, createdAt: new Date().toISOString() } }, { status: 201 });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
+    const { createAuditLog, getClientInfo } = await import('@/lib/audit');
 
     const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
     if (existing) return NextResponse.json({ error: 'EMAIL_EXISTS' }, { status: 409 });

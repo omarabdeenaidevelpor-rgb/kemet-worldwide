@@ -1,8 +1,27 @@
 import { NextAuthOptions, getServerSession } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import { prisma } from './prisma';
-import { createAuditLog } from './audit';
+import { DEMO_ACCOUNTS } from './demo-accounts';
+
+// ---------------------------------------------------------------------------
+// Demo mode: when DATABASE_URL is absent we bypass Prisma entirely and
+// authenticate against the hard-coded demo accounts only.
+// ---------------------------------------------------------------------------
+const DEMO_MODE = !process.env.DATABASE_URL;
+
+// Lazy imports so we don't crash at startup when DB is unavailable
+let prismaModule: typeof import('./prisma') | null = null;
+let auditModule: typeof import('./audit') | null = null;
+
+async function getPrisma() {
+  if (!prismaModule) prismaModule = await import('./prisma');
+  return prismaModule.prisma;
+}
+
+async function getAudit() {
+  if (!auditModule) auditModule = await import('./audit');
+  return auditModule.createAuditLog;
+}
 
 const PERMISSION_REFRESH_MS = 60 * 1000; // 1 minute
 
@@ -30,6 +49,7 @@ function flattenAccess(user: {
 
 /** Returns null if the user no longer exists or is deactivated. */
 async function loadUserAccess(userId: string) {
+  const prisma = await getPrisma();
   const user = await prisma.user.findUnique({ where: { id: userId }, include: userAccessInclude });
   if (!user || !user.isActive) return null;
   return { name: user.name, ...flattenAccess(user) };
@@ -37,6 +57,20 @@ async function loadUserAccess(userId: string) {
 
 // Constant-time-ish dummy hash so "unknown email" and "wrong password" take similar time
 const DUMMY_HASH = '$2a$12$jJDo7oxb4jeUmMQE8B0PDuGpbgsBzKgtKLko3hB82/7bowljTgJzK';
+
+// ---------------------------------------------------------------------------
+// Demo-mode permissions: give each role a full set of permissions so the
+// client can navigate the app without a real DB.
+// ---------------------------------------------------------------------------
+const ALL_MODULES = ['SHIPMENTS','CUSTOMERS','EMPLOYEES','FINANCE','DOCUMENTS','INCIDENTS','AUDIT','REPORTS','SETTINGS','NOTIFICATIONS','TRACKING','DASHBOARD'];
+const ALL_ACTIONS = ['READ','CREATE','UPDATE','DELETE','EXPORT'];
+const ALL_PERMISSIONS = ALL_MODULES.flatMap(m => ALL_ACTIONS.map(a => `${m}:${a}`));
+
+function demoPermissionsForRole(role: string): string[] {
+  if (role === 'AUDITOR') return ALL_MODULES.map(m => `${m}:READ`);
+  if (role === 'ACCOUNTANT') return [...ALL_MODULES.map(m => `${m}:READ`), 'FINANCE:CREATE','FINANCE:UPDATE','FINANCE:DELETE','FINANCE:EXPORT'];
+  return ALL_PERMISSIONS; // all other roles get full access in demo
+}
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
@@ -60,8 +94,36 @@ export const authOptions: NextAuthOptions = {
           throw new Error('MISSING_CREDENTIALS');
         }
 
+        const email = credentials.email.toLowerCase().trim();
+
+        // ----------------------------------------------------------------
+        // DEMO MODE — no database required
+        // ----------------------------------------------------------------
+        if (DEMO_MODE) {
+          const account = DEMO_ACCOUNTS.find(a => a.email === email);
+          if (!account || account.password !== credentials.password) {
+            await bcrypt.compare(credentials.password, DUMMY_HASH); // timing safety
+            throw new Error('INVALID_CREDENTIALS');
+          }
+          const permissions = demoPermissionsForRole(account.role);
+          return {
+            id: `demo-${account.role}`,
+            email: account.email,
+            name: account.name,
+            image: null,
+            roles: [account.role],
+            permissions,
+          };
+        }
+
+        // ----------------------------------------------------------------
+        // NORMAL MODE — database required
+        // ----------------------------------------------------------------
+        const prisma = await getPrisma();
+        const createAuditLog = await getAudit();
+
         const user = await prisma.user.findUnique({
-          where: { email: credentials.email.toLowerCase().trim() },
+          where: { email },
           include: userAccessInclude,
         });
 
@@ -88,10 +150,7 @@ export const authOptions: NextAuthOptions = {
 
           await prisma.user.update({
             where: { id: user.id },
-            data: {
-              failedLoginAttempts: newAttempts,
-              lockedUntil,
-            },
+            data: { failedLoginAttempts: newAttempts, lockedUntil },
           });
 
           await createAuditLog({
@@ -108,11 +167,7 @@ export const authOptions: NextAuthOptions = {
         // Reset failed attempts on success
         await prisma.user.update({
           where: { id: user.id },
-          data: {
-            failedLoginAttempts: 0,
-            lockedUntil: null,
-            lastLoginAt: new Date(),
-          },
+          data: { failedLoginAttempts: 0, lockedUntil: null, lastLoginAt: new Date() },
         });
 
         const { roles, permissions } = flattenAccess(user);
@@ -140,9 +195,10 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
-      // Re-sync roles/permissions/active-state from the DB periodically so that
-      // deactivating a user or changing their role takes effect quickly
-      // (instead of waiting for the 8h JWT to expire).
+      // Demo mode: skip DB refresh
+      if (DEMO_MODE) return token;
+
+      // Re-sync roles/permissions/active-state from the DB periodically
       const last = (token.refreshedAt as number | undefined) ?? 0;
       if (token.id && Date.now() - last > PERMISSION_REFRESH_MS) {
         try {

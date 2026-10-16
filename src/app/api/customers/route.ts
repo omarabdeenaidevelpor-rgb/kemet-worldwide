@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { authorizeApi } from '@/lib/api-auth';
 import { hasPermission } from '@/lib/permissions';
-import { prisma } from '@/lib/prisma';
-import { createAuditLog, getClientInfo } from '@/lib/audit';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const DEMO_MODE = !process.env.DATABASE_URL;
 
 const CreateCustomerSchema = z.object({
   type: z.enum(['INDIVIDUAL', 'COMPANY']),
@@ -30,10 +30,28 @@ export async function GET(req: NextRequest) {
     const canViewFinance = hasPermission(auth.session.user.permissions, auth.session.user.roles, 'FINANCE', 'VIEW');
 
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search') ?? '';
+    const search = (searchParams.get('search') ?? '').toLowerCase();
     const status = searchParams.get('status') ?? '';
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
     const pageSize = Math.min(100, parseInt(searchParams.get('pageSize') ?? '20'));
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      const { DEMO_CUSTOMERS } = await import('@/lib/demo-data');
+      let filtered = DEMO_CUSTOMERS.filter(c => {
+        if (search && !c.legalName.toLowerCase().includes(search) && !(c.email ?? '').toLowerCase().includes(search) && !(c.phone ?? '').includes(search)) return false;
+        if (status && c.status !== status) return false;
+        return true;
+      });
+      const total = filtered.length;
+      const data = filtered.slice((page - 1) * pageSize, page * pageSize).map(c =>
+        canViewFinance ? c : { ...c, creditLimit: null }
+      );
+      return NextResponse.json({ data, total, page, pageSize });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
 
     const where: any = {};
     if (search) {
@@ -79,7 +97,14 @@ export async function POST(req: NextRequest) {
 
     const fileNumber = `KMT-C-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 
-    const customer = await prisma.customer.create({
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      return NextResponse.json({ data: { id: randomUUID(), fileNumber, ...parsed.data, status: 'ACTIVE', createdAt: new Date().toISOString() } }, { status: 201 });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
+    const { createAuditLog, getClientInfo } = await import('@/lib/audit');
       data: {
         ...parsed.data,
         fileNumber,

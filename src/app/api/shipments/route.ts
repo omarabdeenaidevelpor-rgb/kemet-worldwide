@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { authorizeApi } from '@/lib/api-auth';
 import { hasPermission } from '@/lib/permissions';
-import { prisma } from '@/lib/prisma';
-import { createAuditLog, getClientInfo } from '@/lib/audit';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const DEMO_MODE = !process.env.DATABASE_URL;
 
 const CreateShipmentSchema = z.object({
   customerId: z.string().min(1),
@@ -44,12 +44,32 @@ export async function GET(req: NextRequest) {
     const canViewFinance = hasPermission(auth.session.user.permissions, auth.session.user.roles, 'FINANCE', 'VIEW');
 
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search') ?? '';
+    const search = (searchParams.get('search') ?? '').toLowerCase();
     const status = searchParams.get('status') ?? '';
     const mode = searchParams.get('mode') ?? '';
     const customerId = searchParams.get('customerId') ?? '';
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
     const pageSize = Math.min(100, parseInt(searchParams.get('pageSize') ?? '20'));
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      const { DEMO_SHIPMENTS } = await import('@/lib/demo-data');
+      let filtered = DEMO_SHIPMENTS.filter(s => {
+        if (search && !s.referenceNumber.toLowerCase().includes(search) && !s.origin.toLowerCase().includes(search) && !s.destination.toLowerCase().includes(search) && !s.customer.legalName.toLowerCase().includes(search)) return false;
+        if (status && s.status !== status) return false;
+        if (mode && s.mode !== mode) return false;
+        if (customerId && s.customerId !== customerId) return false;
+        return true;
+      });
+      const total = filtered.length;
+      const data = filtered.slice((page - 1) * pageSize, page * pageSize).map(s =>
+        canViewFinance ? s : { ...s, customerPrice: null, estimatedCosts: null, actualCosts: null, margin: null }
+      );
+      return NextResponse.json({ data, total, page, pageSize });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
 
     const where: any = {};
     if (search) {
@@ -119,6 +139,15 @@ export async function POST(req: NextRequest) {
 
     const year = new Date().getFullYear();
     const referenceNumber = `KMT-${parsed.data.mode[0]}${year}-${randomUUID().slice(0, 8).toUpperCase()}`;
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      return NextResponse.json({ data: { id: randomUUID(), referenceNumber, ...parsed.data, status: 'DRAFT', createdAt: new Date().toISOString() } }, { status: 201 });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
+    const { createAuditLog, getClientInfo } = await import('@/lib/audit');
 
     const shipment = await prisma.$transaction(async (transaction) => {
       const createdShipment = await transaction.shipment.create({

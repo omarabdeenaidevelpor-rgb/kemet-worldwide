@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const isProd = process.env.NODE_ENV === 'production';
 
+// Auto-detect NEXTAUTH_URL from Railway's public domain if not set explicitly
+if (isProd && !process.env.NEXTAUTH_URL && process.env.RAILWAY_PUBLIC_DOMAIN) {
+  process.env.NEXTAUTH_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+}
+
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },

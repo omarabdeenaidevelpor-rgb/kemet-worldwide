@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { authorizeApi } from '@/lib/api-auth';
-import { prisma } from '@/lib/prisma';
-import { createAuditLog, getClientInfo } from '@/lib/audit';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const DEMO_MODE = !process.env.DATABASE_URL;
 
 const InvoiceItemSchema = z.object({
   description: z.string().min(1),
@@ -34,6 +34,22 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') ?? '';
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
     const pageSize = Math.min(100, parseInt(searchParams.get('pageSize') ?? '20'));
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      const { DEMO_INVOICES } = await import('@/lib/demo-data');
+      let filtered = DEMO_INVOICES.filter(i => {
+        if (customerId && i.customerId !== customerId) return false;
+        if (status && i.status !== status) return false;
+        return true;
+      });
+      const total = filtered.length;
+      const data = filtered.slice((page - 1) * pageSize, page * pageSize);
+      return NextResponse.json({ data, total, page, pageSize });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
 
     const where: any = {};
     if (customerId) where.customerId = customerId;
@@ -72,12 +88,20 @@ export async function POST(req: NextRequest) {
 
     const year = new Date().getFullYear();
     const invoiceNumber = `KMT-INV-${year}-${randomUUID().slice(0, 8).toUpperCase()}`;
-
     const subtotal = parsed.data.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
     const totalAmount = subtotal + parsed.data.taxAmount - parsed.data.discountAmount;
     if (totalAmount <= 0) {
       return NextResponse.json({ error: 'INVOICE_TOTAL_MUST_BE_POSITIVE' }, { status: 400 });
     }
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      return NextResponse.json({ data: { id: randomUUID(), invoiceNumber, ...parsed.data, subtotal, totalAmount, status: 'DRAFT', createdAt: new Date().toISOString() } }, { status: 201 });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
+    const { createAuditLog, getClientInfo } = await import('@/lib/audit');
 
     const invoice = await prisma.invoice.create({
       data: {

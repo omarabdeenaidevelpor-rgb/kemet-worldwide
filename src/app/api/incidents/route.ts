@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
-import type { IncidentSeverity, IncidentStatus, Prisma } from '@prisma/client';
 import { authorizeApi } from '@/lib/api-auth';
-import { prisma } from '@/lib/prisma';
-import { createAuditLog, getClientInfo } from '@/lib/audit';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+const DEMO_MODE = !process.env.DATABASE_URL;
+
+type IncidentStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
 
 const CreateIncidentSchema = z.object({
   shipmentId: z.string().optional(),
@@ -35,7 +36,22 @@ export async function GET(req: NextRequest) {
     const page = Number.isFinite(pageValue) ? Math.max(1, pageValue) : 1;
     const pageSize = Number.isFinite(sizeValue) ? Math.min(100, Math.max(1, sizeValue)) : 20;
 
-    const where: Prisma.IncidentWhereInput = {};
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      const { DEMO_INCIDENTS } = await import('@/lib/demo-data');
+      let filtered = DEMO_INCIDENTS.filter(i => {
+        if (status?.success && i.status !== status.data) return false;
+        if (severity?.success && i.severity !== severity.data) return false;
+        return true;
+      });
+      const total = filtered.length;
+      const data = filtered.slice((page - 1) * pageSize, page * pageSize);
+      return NextResponse.json({ data, total, page, pageSize });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
+    const where: any = {};
     if (status?.success) where.status = status.data;
     if (severity?.success) where.severity = severity.data;
 
@@ -69,6 +85,18 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() }, { status: 400 });
     }
+
+    const referenceNumber = `INC-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      return NextResponse.json({ data: { id: randomUUID(), referenceNumber, ...parsed.data, status: 'OPEN', reportedById: 'demo', createdAt: new Date().toISOString() } }, { status: 201 });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
+    const { createAuditLog, getClientInfo } = await import('@/lib/audit');
+
     let shipmentCustomerId: string | null = null;
     if (parsed.data.shipmentId) {
       const shipment = await prisma.shipment.findUnique({ where: { id: parsed.data.shipmentId }, select: { id: true, customerId: true } });
@@ -120,18 +148,27 @@ export async function PATCH(req: NextRequest) {
     const auth = await authorizeApi('INCIDENTS', 'EDIT');
     if (!auth.session) return auth.response;
 
-    const parsed = z.object({
+    const parsed2 = z.object({
       id: z.string().min(1),
       status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']).optional(),
       assignedToId: z.string().nullable().optional(),
       update: z.string().trim().min(1).max(5000).optional(),
     }).refine((value) => value.status !== undefined || value.assignedToId !== undefined || value.update !== undefined)
       .safeParse(await req.json());
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() }, { status: 400 });
+    if (!parsed2.success) {
+      return NextResponse.json({ error: 'VALIDATION_ERROR', details: parsed2.error.flatten() }, { status: 400 });
     }
 
-    const existing = await prisma.incident.findUnique({ where: { id: parsed.data.id } });
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      return NextResponse.json({ data: { id: parsed2.data.id, ...parsed2.data } });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma: prisma2 } = await import('@/lib/prisma');
+    const { createAuditLog: createAuditLog2, getClientInfo: getClientInfo2 } = await import('@/lib/audit');
+
+    const existing = await prisma2.incident.findUnique({ where: { id: parsed2.data.id } });
     if (!existing) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
     const transitions: Record<IncidentStatus, IncidentStatus[]> = {
       OPEN: ['IN_PROGRESS', 'RESOLVED'],
@@ -139,35 +176,35 @@ export async function PATCH(req: NextRequest) {
       RESOLVED: ['OPEN', 'CLOSED'],
       CLOSED: [],
     };
-    if (parsed.data.status && parsed.data.status !== existing.status && !transitions[existing.status].includes(parsed.data.status)) {
+    if (parsed2.data.status && parsed2.data.status !== existing.status && !transitions[existing.status].includes(parsed2.data.status)) {
       return NextResponse.json({ error: 'INVALID_STATUS_TRANSITION' }, { status: 409 });
     }
-    if (parsed.data.assignedToId) {
-      const assignee = await prisma.user.findUnique({ where: { id: parsed.data.assignedToId }, select: { id: true, isActive: true } });
+    if (parsed2.data.assignedToId) {
+      const assignee = await prisma2.user.findUnique({ where: { id: parsed2.data.assignedToId }, select: { id: true, isActive: true } });
       if (!assignee?.isActive) return NextResponse.json({ error: 'ASSIGNEE_NOT_FOUND' }, { status: 404 });
     }
 
-    const incident = await prisma.$transaction(async (transaction) => {
-      if (parsed.data.status && parsed.data.status !== existing.status) {
+    const incident = await prisma2.$transaction(async (transaction) => {
+      if (parsed2.data.status && parsed2.data.status !== existing.status) {
         const changed = await transaction.incident.updateMany({
           where: { id: existing.id, status: existing.status },
           data: {
-            status: parsed.data.status,
-            resolvedAt: parsed.data.status === 'RESOLVED' || parsed.data.status === 'CLOSED' ? new Date() : null,
-            ...(parsed.data.assignedToId !== undefined ? { assignedToId: parsed.data.assignedToId } : {}),
+            status: parsed2.data.status,
+            resolvedAt: parsed2.data.status === 'RESOLVED' || parsed2.data.status === 'CLOSED' ? new Date() : null,
+            ...(parsed2.data.assignedToId !== undefined ? { assignedToId: parsed2.data.assignedToId } : {}),
           },
         });
         if (changed.count === 0) throw new Error('INCIDENT_STATE_CHANGED');
-      } else if (parsed.data.assignedToId !== undefined) {
+      } else if (parsed2.data.assignedToId !== undefined) {
         await transaction.incident.update({
           where: { id: existing.id },
-          data: { assignedToId: parsed.data.assignedToId },
+          data: { assignedToId: parsed2.data.assignedToId },
         });
       }
 
-      if (parsed.data.update) {
+      if (parsed2.data.update) {
         await transaction.incidentUpdate.create({
-          data: { incidentId: existing.id, authorId: auth.session.user.id, content: parsed.data.update },
+          data: { incidentId: existing.id, authorId: auth.session.user.id, content: parsed2.data.update },
         });
       }
 
@@ -180,8 +217,8 @@ export async function PATCH(req: NextRequest) {
       });
     });
 
-    const { ipAddress, userAgent } = getClientInfo(req);
-    await createAuditLog({
+    const { ipAddress, userAgent } = getClientInfo2(req);
+    await createAuditLog2({
       userId: auth.session.user.id,
       action: 'UPDATE',
       module: 'INCIDENTS',

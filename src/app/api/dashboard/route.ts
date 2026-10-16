@@ -1,13 +1,24 @@
 import { NextResponse } from 'next/server';
 import { authorizeApi } from '@/lib/api-auth';
 import { hasPermission } from '@/lib/permissions';
-import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+
+const DEMO_MODE = !process.env.DATABASE_URL;
 
 export async function GET() {
   try {
     const auth = await authorizeApi('DASHBOARD', 'VIEW');
+    if (!auth.session) return auth.response;
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      const { DEMO_DASHBOARD } = await import('@/lib/demo-data');
+      return NextResponse.json(DEMO_DASHBOARD);
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
     if (!auth.session) return auth.response;
     const canViewFinance = hasPermission(auth.session.user.permissions, auth.session.user.roles, 'FINANCE', 'VIEW');
 

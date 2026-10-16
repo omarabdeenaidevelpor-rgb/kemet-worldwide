@@ -1,16 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authorizeApi } from '@/lib/api-auth';
-import { createAuditLog, getClientInfo } from '@/lib/audit';
-import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+
+const DEMO_MODE = !process.env.DATABASE_URL;
 
 export async function GET() {
   try {
     const auth = await authorizeApi('SETTINGS', 'VIEW');
     if (!auth.session) return auth.response;
 
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      const { DEMO_CURRENCIES } = await import('@/lib/demo-data');
+      return NextResponse.json({ data: DEMO_CURRENCIES });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
     const currencies = await prisma.currency.findMany({
       where: { isActive: true },
       orderBy: [{ isBase: 'desc' }, { code: 'asc' }],
@@ -40,6 +48,15 @@ export async function PUT(request: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() }, { status: 400 });
     }
+
+    // ── DEMO MODE ────────────────────────────────────────────────────────────
+    if (DEMO_MODE) {
+      return NextResponse.json({ message: 'CURRENCY_RATES_UPDATED', data: parsed.data });
+    }
+
+    // ── NORMAL MODE ──────────────────────────────────────────────────────────
+    const { prisma } = await import('@/lib/prisma');
+    const { createAuditLog, getClientInfo } = await import('@/lib/audit');
 
     const { baseCode, rates } = parsed.data;
     const codes = rates.map((rate) => rate.code);
