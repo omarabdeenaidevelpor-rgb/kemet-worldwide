@@ -1,0 +1,10 @@
+{
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "regions": ["fra1"],
+  "functions": {
+    "src/app/api/documents/route.ts": { "maxDuration": 30 },
+    "src/app/api/documents/[id]/route.ts": { "maxDuration": 30 }
+  }
+}

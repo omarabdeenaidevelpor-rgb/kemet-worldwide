@@ -1,0 +1,808 @@
+// =============================================================================
+// KemetWorldwide — Prisma Schema
+// Database: PostgreSQL
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum RoleName {
+  GENERAL_MANAGER
+  OPERATIONS_MANAGER
+  SHIPMENT_COORDINATOR
+  CUSTOMER_SERVICE_AGENT
+  ACCOUNTANT
+  SALES_REPRESENTATIVE
+  AUDITOR
+}
+
+enum PermissionModule {
+  DASHBOARD
+  CUSTOMERS
+  SHIPMENTS
+  TRACKING
+  FINANCE
+  INCIDENTS
+  DOCUMENTS
+  REPORTS
+  EMPLOYEES
+  AUDIT
+  SETTINGS
+}
+
+enum PermissionAction {
+  VIEW
+  CREATE
+  EDIT
+  DELETE
+  EXPORT
+  APPROVE
+}
+
+enum CustomerType {
+  INDIVIDUAL
+  COMPANY
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum TransportMode {
+  LAND
+  SEA
+  AIR
+}
+
+enum CarrierType {
+  LAND
+  SEA
+  AIR
+  MULTI
+}
+
+enum ShipmentStatus {
+  DRAFT
+  QUOTATION
+  BOOKED
+  PICKUP
+  IN_TRANSIT
+  CUSTOMS
+  OUT_FOR_DELIVERY
+  DELIVERED
+  ON_HOLD
+  DELAYED
+  EXCEPTION
+  CANCELLED
+  RETURNED
+}
+
+enum CustomsStatus {
+  PENDING
+  IN_CLEARANCE
+  CLEARED
+  HELD
+  REJECTED
+}
+
+enum WeightUnit {
+  KG
+  LB
+  TON
+}
+
+enum VolumeUnit {
+  CBM
+  CFT
+  L
+}
+
+enum TrackingSource {
+  MANUAL
+  API
+  GPS
+  WEBHOOK
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CASH
+  CHEQUE
+  CARD
+  ONLINE
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ERROR
+  SUCCESS
+}
+
+// =============================================================================
+// AUTHENTICATION (NextAuth.js compatible)
+// =============================================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// =============================================================================
+// USERS & ROLES
+// =============================================================================
+
+model User {
+  id                   String    @id @default(cuid())
+  email                String    @unique
+  name                 String
+  passwordHash         String
+  avatarUrl            String?
+  phone                String?
+  isActive             Boolean   @default(true)
+  failedLoginAttempts  Int       @default(0)
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  mfaEnabled           Boolean   @default(false)
+  mfaSecret            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  accounts             Account[]
+  sessions             Session[]
+  userRoles            UserRole[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  managedCustomers     Customer[]         @relation("AccountManager")
+  assignedShipments    Shipment[]         @relation("AssignedEmployee")
+  shipmentStatusHistory ShipmentStatusHistory[]
+  reportedIncidents    Incident[]         @relation("ReportedBy")
+  assignedIncidents    Incident[]         @relation("AssignedTo")
+  incidentUpdates      IncidentUpdate[]
+  createdQuotations    Quotation[]
+  createdInvoices      Invoice[]
+  recordedPayments     Payment[]
+  paidExpenses         Expense[]          @relation("PaidBy")
+  approvedExpenses     Expense[]          @relation("ApprovedBy")
+  uploadedDocuments    Document[]
+  updatedSettings      SystemSetting[]
+
+  @@index([email])
+  @@index([isActive])
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  name        RoleName  @unique
+  description String?
+  isSystem    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  module      PermissionModule
+  action      PermissionAction
+  description String?
+
+  // Relations
+  rolePermissions RolePermission[]
+
+  @@unique([module, action])
+  @@index([module])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  grantedBy String?
+  grantedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+}
+
+// =============================================================================
+// CUSTOMERS / CRM
+// =============================================================================
+
+model Customer {
+  id                 String         @id @default(cuid())
+  fileNumber         String         @unique
+  type               CustomerType
+  legalName          String
+  primaryContactName String?
+  phone              String?
+  email              String?
+  billingAddress     String?
+  shippingAddress    String?
+  country            String?
+  taxNumber          String?
+  accountManagerId   String?
+  status             CustomerStatus @default(ACTIVE)
+  creditLimit        Decimal?       @db.Decimal(18, 2)
+  notes              String?        @db.Text
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  // Relations
+  accountManager  User?             @relation("AccountManager", fields: [accountManagerId], references: [id])
+  contacts        CustomerContact[]
+  shipments       Shipment[]
+  incidents       Incident[]
+  quotations      Quotation[]
+  invoices        Invoice[]
+  payments        Payment[]
+  documents       Document[]
+
+  @@index([fileNumber])
+  @@index([status])
+  @@index([accountManagerId])
+  @@index([country])
+  @@index([legalName])
+}
+
+model CustomerContact {
+  id         String  @id @default(cuid())
+  customerId String
+  name       String
+  role       String?
+  phone      String?
+  email      String?
+  isPrimary  Boolean @default(false)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+// =============================================================================
+// CARRIERS
+// =============================================================================
+
+model Carrier {
+  id           String      @id @default(cuid())
+  name         String
+  code         String?     @unique
+  type         CarrierType
+  country      String?
+  contactEmail String?
+  contactPhone String?
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([type])
+  @@index([isActive])
+}
+
+// =============================================================================
+// SHIPMENTS
+// =============================================================================
+
+model Shipment {
+  id                   String         @id @default(cuid())
+  referenceNumber      String         @unique
+  customerId           String
+  mode                 TransportMode
+  description          String?        @db.Text
+  cargoCategory        String?
+  origin               String
+  destination          String
+  pickupAddress        String?
+  deliveryAddress      String?
+  originCountry        String?
+  destinationCountry   String?
+  departureDate        DateTime?
+  estimatedArrivalDate DateTime?
+  actualDepartureDate  DateTime?
+  actualDeliveryDate   DateTime?
+  carrier              String?
+  freightForwarder     String?
+  containerNumber      String?
+  billOfLading         String?
+  airwayBill           String?
+  consignmentNote      String?
+  packageCount         Int?
+  weight               Decimal?       @db.Decimal(12, 3)
+  weightUnit           WeightUnit     @default(KG)
+  volume               Decimal?       @db.Decimal(12, 3)
+  volumeUnit           VolumeUnit     @default(CBM)
+  customsStatus        CustomsStatus  @default(PENDING)
+  assignedEmployeeId   String?
+  customerPrice        Decimal?       @db.Decimal(18, 2)
+  estimatedCosts       Decimal?       @db.Decimal(18, 2)
+  actualCosts          Decimal?       @db.Decimal(18, 2)
+  margin               Decimal?       @db.Decimal(18, 2)
+  // ── Clearing & forwarding fields (from operations status reports) ──
+  docsReceivedDate     DateTime?      // "Copy Docs Received"
+  pendingDocuments     String?        @db.Text // e.g. "LOA, endorsed BL"
+  latestRemark         String?        @db.Text // last line of the remarks log
+  isOffloaded          Boolean        @default(false) // completed & offloaded at destination
+  importSource         String?        // e.g. "excel:Mowara Status Update SEPT 8"
+  status               ShipmentStatus @default(DRAFT)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  // Relations
+  customer        Customer               @relation(fields: [customerId], references: [id])
+  assignedEmployee User?                 @relation("AssignedEmployee", fields: [assignedEmployeeId], references: [id])
+  legs            ShipmentLeg[]
+  statusHistory   ShipmentStatusHistory[]
+  trackingEvents  TrackingEvent[]
+  incidents       Incident[]
+  quotations      Quotation[]
+  invoices        Invoice[]
+  expenses        Expense[]
+  documents       Document[]
+  containers      ShipmentContainer[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([mode])
+  @@index([referenceNumber])
+  @@index([originCountry])
+  @@index([destinationCountry])
+  @@index([departureDate])
+  @@index([estimatedArrivalDate])
+  @@index([assignedEmployeeId])
+}
+
+model ShipmentLeg {
+  id            String        @id @default(cuid())
+  shipmentId    String
+  legOrder      Int
+  mode          TransportMode
+  origin        String
+  destination   String
+  carrier       String?
+  departureDate DateTime?
+  arrivalDate   DateTime?
+  trackingRef   String?
+  status        String?
+  notes         String?       @db.Text
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+}
+
+model ShipmentStatusHistory {
+  id         String         @id @default(cuid())
+  shipmentId String
+  fromStatus ShipmentStatus?
+  toStatus   ShipmentStatus
+  changedBy  String?
+  changedAt  DateTime       @default(now())
+  notes      String?        @db.Text
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [changedBy], references: [id])
+
+  @@index([shipmentId])
+  @@index([changedAt])
+}
+
+model TrackingEvent {
+  id          String         @id @default(cuid())
+  shipmentId  String
+  eventType   String
+  location    String?
+  latitude    Decimal?       @db.Decimal(10, 7)
+  longitude   Decimal?       @db.Decimal(10, 7)
+  description String?        @db.Text
+  source      TrackingSource @default(MANUAL)
+  isVerified  Boolean        @default(false)
+  occurredAt  DateTime
+  recordedAt  DateTime       @default(now())
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+  @@index([occurredAt])
+  @@index([source])
+}
+
+// =============================================================================
+// INCIDENTS
+// =============================================================================
+
+model Incident {
+  id              String           @id @default(cuid())
+  referenceNumber String           @unique
+  shipmentId      String?
+  customerId      String?
+  type            String
+  severity        IncidentSeverity @default(MEDIUM)
+  title           String
+  description     String           @db.Text
+  status          IncidentStatus   @default(OPEN)
+  assignedToId    String?
+  reportedById    String?
+  reportedAt      DateTime         @default(now())
+  resolvedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  // Relations
+  shipment   Shipment?        @relation(fields: [shipmentId], references: [id])
+  customer   Customer?        @relation(fields: [customerId], references: [id])
+  assignedTo User?            @relation("AssignedTo", fields: [assignedToId], references: [id])
+  reportedBy User?            @relation("ReportedBy", fields: [reportedById], references: [id])
+  updates    IncidentUpdate[]
+  documents  Document[]
+
+  @@index([shipmentId])
+  @@index([customerId])
+  @@index([status])
+  @@index([severity])
+  @@index([reportedAt])
+}
+
+model IncidentUpdate {
+  id         String   @id @default(cuid())
+  incidentId String
+  authorId   String?
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  author   User?    @relation(fields: [authorId], references: [id])
+
+  @@index([incidentId])
+}
+
+// =============================================================================
+// FINANCE — Quotations, Invoices, Payments, Expenses
+// =============================================================================
+
+model Quotation {
+  id              String          @id @default(cuid())
+  referenceNumber String          @unique
+  customerId      String
+  shipmentId      String?
+  validUntil      DateTime?
+  items           Json
+  totalAmount     Decimal         @db.Decimal(18, 2)
+  currency        String          @default("USD")
+  status          QuotationStatus @default(DRAFT)
+  notes           String?         @db.Text
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  customer   Customer  @relation(fields: [customerId], references: [id])
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+  createdBy  User?     @relation(fields: [createdById], references: [id])
+
+  @@index([customerId])
+  @@index([shipmentId])
+  @@index([status])
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  invoiceNumber  String        @unique
+  customerId     String
+  shipmentId     String?
+  issueDate      DateTime      @default(now())
+  dueDate        DateTime?
+  currency       String        @default("USD")
+  subtotal       Decimal       @db.Decimal(18, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(18, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(18, 2)
+  totalAmount    Decimal       @db.Decimal(18, 2)
+  paidAmount     Decimal       @default(0) @db.Decimal(18, 2)
+  status         InvoiceStatus @default(DRAFT)
+  notes          String?       @db.Text
+  createdById    String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Relations
+  customer  Customer      @relation(fields: [customerId], references: [id])
+  shipment  Shipment?     @relation(fields: [shipmentId], references: [id])
+  createdBy User?         @relation(fields: [createdById], references: [id])
+  items     InvoiceItem[]
+  payments  Payment[]
+
+  @@index([customerId])
+  @@index([shipmentId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([invoiceNumber])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Decimal @db.Decimal(12, 4)
+  unitPrice   Decimal @db.Decimal(18, 4)
+  totalPrice  Decimal @db.Decimal(18, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  paymentNumber String        @unique
+  customerId    String
+  invoiceId     String?
+  amount        Decimal       @db.Decimal(18, 2)
+  currency      String        @default("USD")
+  method        PaymentMethod
+  reference     String?
+  paidAt        DateTime
+  notes         String?       @db.Text
+  recordedById  String?
+  createdAt     DateTime      @default(now())
+
+  customer   Customer @relation(fields: [customerId], references: [id])
+  invoice    Invoice? @relation(fields: [invoiceId], references: [id])
+  recordedBy User?    @relation(fields: [recordedById], references: [id])
+
+  @@index([customerId])
+  @@index([invoiceId])
+  @@index([paidAt])
+}
+
+model Expense {
+  id          String        @id @default(cuid())
+  category    String
+  description String?       @db.Text
+  amount      Decimal       @db.Decimal(18, 2)
+  currency    String        @default("USD")
+  shipmentId  String?
+  paidById    String?
+  paidAt      DateTime?
+  receiptUrl  String?
+  approvedById String?
+  status      ExpenseStatus @default(PENDING)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+  paidBy     User?     @relation("PaidBy", fields: [paidById], references: [id])
+  approvedBy User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([shipmentId])
+  @@index([status])
+  @@index([paidAt])
+}
+
+model Currency {
+  id           String  @id @default(cuid())
+  code         String  @unique
+  name         String
+  symbol       String
+  exchangeRate Decimal @db.Decimal(18, 8)
+  isBase       Boolean @default(false)
+  isActive     Boolean @default(true)
+
+  @@index([isActive])
+  @@index([isBase])
+}
+
+// =============================================================================
+// DOCUMENTS
+// =============================================================================
+
+model Document {
+  id             String   @id @default(cuid())
+  name           String
+  type           String
+  filePath       String
+  fileSize       Int?
+  mimeType       String?
+  customerId     String?
+  shipmentId     String?
+  incidentId     String?
+  uploadedById   String?
+  isConfidential Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+  incident   Incident? @relation(fields: [incidentId], references: [id])
+  uploadedBy User?     @relation(fields: [uploadedById], references: [id])
+
+  @@index([customerId])
+  @@index([shipmentId])
+  @@index([incidentId])
+  @@index([uploadedById])
+}
+
+// =============================================================================
+// NOTIFICATIONS
+// =============================================================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  title     String
+  message   String           @db.Text
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// AUDIT LOG
+// =============================================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  module     String
+  recordId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([module])
+  @@index([action])
+  @@index([createdAt])
+  @@index([recordId])
+}
+
+// =============================================================================
+// SYSTEM SETTINGS
+// =============================================================================
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  updatedBy User? @relation(fields: [updatedById], references: [id])
+
+  @@index([key])
+}
+
+/// One physical unit inside a shipment file: a container, a vehicle (chassis), or an air-waybill line.
+model ShipmentContainer {
+  id               String    @id @default(cuid())
+  shipmentId       String
+  containerNumber  String?   // e.g. BEAU4379585 ; null for air cargo
+  unitType         String?   // 40HC, 20GP, 40 SOC, Low Bed, Self Drive, LCL ...
+  billOfLading     String?   // BL / AWB / chassis document number
+  truckNumber      String?   // e.g. KDY179E
+  dischargeDate    DateTime? // discharged at port / arrived at airport
+  loadedOutDate    DateTime? // loaded on truck
+  etaBorder        DateTime? // ETA Malaba (border)
+  etaDestination   DateTime? // ETA Lira (final destination)
+  status           ShipmentStatus @default(BOOKED)
+  remarks          String?   @db.Text  // full remarks log as received
+  isOffloaded      Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+  @@index([containerNumber])
+  @@index([truckNumber])
+  @@index([status])
+}
