@@ -114,7 +114,6 @@ export async function POST(req: NextRequest) {
       const assignee = await prisma.user.findUnique({ where: { id: parsed.data.assignedToId }, select: { id: true, isActive: true } });
       if (!assignee?.isActive) return NextResponse.json({ error: 'ASSIGNEE_NOT_FOUND' }, { status: 404 });
     }
-    const referenceNumber = `INC-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
     const incident = await prisma.incident.create({
       data: {
         ...parsed.data,

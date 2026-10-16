@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
     // ── NORMAL MODE ──────────────────────────────────────────────────────────
     const { prisma } = await import('@/lib/prisma');
     const { createAuditLog, getClientInfo } = await import('@/lib/audit');
+
+    const customer = await prisma.customer.create({
       data: {
         ...parsed.data,
         fileNumber,
