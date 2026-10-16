@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     // ── DEMO MODE ────────────────────────────────────────────────────────────
     if (DEMO_MODE) {
       const { DEMO_INCIDENTS } = await import('@/lib/demo-data');
-      let filtered = DEMO_INCIDENTS.filter(i => {
+      const filtered = DEMO_INCIDENTS.filter(i => {
         if (status?.success && i.status !== status.data) return false;
         if (severity?.success && i.severity !== severity.data) return false;
         return true;
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       const assignee = await prisma.user.findUnique({ where: { id: parsed.data.assignedToId }, select: { id: true, isActive: true } });
       if (!assignee?.isActive) return NextResponse.json({ error: 'ASSIGNEE_NOT_FOUND' }, { status: 404 });
     }
-    const referenceNumber = `INC-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+
     const incident = await prisma.incident.create({
       data: {
         ...parsed.data,
@@ -148,63 +148,64 @@ export async function PATCH(req: NextRequest) {
     const auth = await authorizeApi('INCIDENTS', 'EDIT');
     if (!auth.session) return auth.response;
 
-    const parsed2 = z.object({
+    const parsed = z.object({
       id: z.string().min(1),
       status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']).optional(),
       assignedToId: z.string().nullable().optional(),
       update: z.string().trim().min(1).max(5000).optional(),
     }).refine((value) => value.status !== undefined || value.assignedToId !== undefined || value.update !== undefined)
       .safeParse(await req.json());
-    if (!parsed2.success) {
-      return NextResponse.json({ error: 'VALIDATION_ERROR', details: parsed2.error.flatten() }, { status: 400 });
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() }, { status: 400 });
     }
 
     // ── DEMO MODE ────────────────────────────────────────────────────────────
     if (DEMO_MODE) {
-      return NextResponse.json({ data: { id: parsed2.data.id, ...parsed2.data } });
+      return NextResponse.json({ data: { id: parsed.data.id, ...parsed.data } });
     }
 
     // ── NORMAL MODE ──────────────────────────────────────────────────────────
-    const { prisma: prisma2 } = await import('@/lib/prisma');
-    const { createAuditLog: createAuditLog2, getClientInfo: getClientInfo2 } = await import('@/lib/audit');
+    const { prisma } = await import('@/lib/prisma');
+    const { createAuditLog, getClientInfo } = await import('@/lib/audit');
 
-    const existing = await prisma2.incident.findUnique({ where: { id: parsed2.data.id } });
+    const existing = await prisma.incident.findUnique({ where: { id: parsed.data.id } });
     if (!existing) return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
+
     const transitions: Record<IncidentStatus, IncidentStatus[]> = {
       OPEN: ['IN_PROGRESS', 'RESOLVED'],
       IN_PROGRESS: ['OPEN', 'RESOLVED'],
       RESOLVED: ['OPEN', 'CLOSED'],
       CLOSED: [],
     };
-    if (parsed2.data.status && parsed2.data.status !== existing.status && !transitions[existing.status].includes(parsed2.data.status)) {
+    if (parsed.data.status && parsed.data.status !== existing.status && !transitions[existing.status as IncidentStatus].includes(parsed.data.status)) {
       return NextResponse.json({ error: 'INVALID_STATUS_TRANSITION' }, { status: 409 });
     }
-    if (parsed2.data.assignedToId) {
-      const assignee = await prisma2.user.findUnique({ where: { id: parsed2.data.assignedToId }, select: { id: true, isActive: true } });
+    if (parsed.data.assignedToId) {
+      const assignee = await prisma.user.findUnique({ where: { id: parsed.data.assignedToId }, select: { id: true, isActive: true } });
       if (!assignee?.isActive) return NextResponse.json({ error: 'ASSIGNEE_NOT_FOUND' }, { status: 404 });
     }
 
-    const incident = await prisma2.$transaction(async (transaction) => {
-      if (parsed2.data.status && parsed2.data.status !== existing.status) {
+    const incident = await prisma.$transaction(async (transaction) => {
+      if (parsed.data.status && parsed.data.status !== existing.status) {
         const changed = await transaction.incident.updateMany({
           where: { id: existing.id, status: existing.status },
           data: {
-            status: parsed2.data.status,
-            resolvedAt: parsed2.data.status === 'RESOLVED' || parsed2.data.status === 'CLOSED' ? new Date() : null,
-            ...(parsed2.data.assignedToId !== undefined ? { assignedToId: parsed2.data.assignedToId } : {}),
+            status: parsed.data.status,
+            resolvedAt: parsed.data.status === 'RESOLVED' || parsed.data.status === 'CLOSED' ? new Date() : null,
+            ...(parsed.data.assignedToId !== undefined ? { assignedToId: parsed.data.assignedToId } : {}),
           },
         });
         if (changed.count === 0) throw new Error('INCIDENT_STATE_CHANGED');
-      } else if (parsed2.data.assignedToId !== undefined) {
+      } else if (parsed.data.assignedToId !== undefined) {
         await transaction.incident.update({
           where: { id: existing.id },
-          data: { assignedToId: parsed2.data.assignedToId },
+          data: { assignedToId: parsed.data.assignedToId },
         });
       }
 
-      if (parsed2.data.update) {
+      if (parsed.data.update) {
         await transaction.incidentUpdate.create({
-          data: { incidentId: existing.id, authorId: auth.session.user.id, content: parsed2.data.update },
+          data: { incidentId: existing.id, authorId: auth.session!.user.id, content: parsed.data.update },
         });
       }
 
@@ -217,8 +218,8 @@ export async function PATCH(req: NextRequest) {
       });
     });
 
-    const { ipAddress, userAgent } = getClientInfo2(req);
-    await createAuditLog2({
+    const { ipAddress, userAgent } = getClientInfo(req);
+    await createAuditLog({
       userId: auth.session.user.id,
       action: 'UPDATE',
       module: 'INCIDENTS',

@@ -1,0 +1,47 @@
+============================================
+ Setting git identity
+============================================
+============================================
+ Unstaging helper scripts
+============================================
+============================================
+ Final git status
+============================================
+On branch main
+Your branch is up to date with 'origin/main'.
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	new file:   RAILWAY_DEPLOYMENT.md
+	modified:   next.config.mjs
+	modified:   src/app/api/customers/route.ts
+	modified:   src/app/api/dashboard/route.ts
+	modified:   src/app/api/employees/route.ts
+	modified:   src/app/api/finance/invoices/route.ts
+	modified:   src/app/api/incidents/route.ts
+	modified:   src/app/api/settings/currencies/route.ts
+	modified:   src/app/api/shipments/route.ts
+	modified:   src/lib/auth.ts
+	new file:   src/lib/demo-data.ts
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.push-done.txt
+	.push-output.txt
+	deploy.ps1
+	do-push.bat
+	push-changes.bat
+
+============================================
+ Committing
+============================================
+[main c86c9cf] feat: add demo mode - app works without database
+ 11 files changed, 483 insertions(+), 52 deletions(-)
+ create mode 100644 RAILWAY_DEPLOYMENT.md
+ create mode 100644 src/lib/demo-data.ts
+============================================
+ Pushing to GitHub
+============================================
+To https://github.com/omarabdeenaidevelpor-rgb/kemet-worldwide.git
+   37fcb03..c86c9cf  main -> main
+PUSH_COMPLETE

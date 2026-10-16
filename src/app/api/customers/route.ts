@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     // ── DEMO MODE ────────────────────────────────────────────────────────────
     if (DEMO_MODE) {
       const { DEMO_CUSTOMERS } = await import('@/lib/demo-data');
-      let filtered = DEMO_CUSTOMERS.filter(c => {
+      const filtered = DEMO_CUSTOMERS.filter(c => {
         if (search && !c.legalName.toLowerCase().includes(search) && !(c.email ?? '').toLowerCase().includes(search) && !(c.phone ?? '').includes(search)) return false;
         if (status && c.status !== status) return false;
         return true;
@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
     // ── NORMAL MODE ──────────────────────────────────────────────────────────
     const { prisma } = await import('@/lib/prisma');
     const { createAuditLog, getClientInfo } = await import('@/lib/audit');
+
+    const customer = await prisma.customer.create({
       data: {
         ...parsed.data,
         fileNumber,
