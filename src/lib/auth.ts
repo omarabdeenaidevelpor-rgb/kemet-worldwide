@@ -58,18 +58,29 @@ async function loadUserAccess(userId: string) {
 // Constant-time-ish dummy hash so "unknown email" and "wrong password" take similar time
 const DUMMY_HASH = '$2a$12$jJDo7oxb4jeUmMQE8B0PDuGpbgsBzKgtKLko3hB82/7bowljTgJzK';
 
-// ---------------------------------------------------------------------------
-// Demo-mode permissions: give each role a full set of permissions so the
-// client can navigate the app without a real DB.
-// ---------------------------------------------------------------------------
-const ALL_MODULES = ['SHIPMENTS','CUSTOMERS','EMPLOYEES','FINANCE','DOCUMENTS','INCIDENTS','AUDIT','REPORTS','SETTINGS','NOTIFICATIONS','TRACKING','DASHBOARD'];
-const ALL_ACTIONS = ['READ','CREATE','UPDATE','DELETE','EXPORT'];
-const ALL_PERMISSIONS = ALL_MODULES.flatMap(m => ALL_ACTIONS.map(a => `${m}:${a}`));
+const DEMO_PERMISSION_MODULES = ['DASHBOARD', 'CUSTOMERS', 'SHIPMENTS', 'TRACKING', 'FINANCE', 'INCIDENTS', 'DOCUMENTS', 'REPORTS', 'EMPLOYEES', 'AUDIT', 'SETTINGS'] as const;
+const DEMO_PERMISSION_ACTIONS = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'EXPORT', 'APPROVE'] as const;
+const DEMO_ALL_PERMISSIONS = DEMO_PERMISSION_MODULES.flatMap((module) =>
+  DEMO_PERMISSION_ACTIONS.map((action) => `${module}:${action}`)
+);
 
 function demoPermissionsForRole(role: string): string[] {
-  if (role === 'AUDITOR') return ALL_MODULES.map(m => `${m}:READ`);
-  if (role === 'ACCOUNTANT') return [...ALL_MODULES.map(m => `${m}:READ`), 'FINANCE:CREATE','FINANCE:UPDATE','FINANCE:DELETE','FINANCE:EXPORT'];
-  return ALL_PERMISSIONS; // all other roles get full access in demo
+  if (role === 'AUDITOR') {
+    return DEMO_PERMISSION_MODULES.flatMap((module) => [`${module}:VIEW`, `${module}:EXPORT`]);
+  }
+
+  if (role === 'ACCOUNTANT') {
+    return DEMO_ALL_PERMISSIONS.filter((perm) =>
+      perm.startsWith('FINANCE:') ||
+      perm.startsWith('DASHBOARD:') ||
+      perm.startsWith('REPORTS:') ||
+      perm.startsWith('SETTINGS:') ||
+      perm.startsWith('CUSTOMERS:') ||
+      perm.startsWith('SHIPMENTS:')
+    );
+  }
+
+  return DEMO_ALL_PERMISSIONS;
 }
 
 export const authOptions: NextAuthOptions = {
@@ -100,7 +111,7 @@ export const authOptions: NextAuthOptions = {
         // DEMO MODE — no database required
         // ----------------------------------------------------------------
         if (DEMO_MODE) {
-          const account = DEMO_ACCOUNTS.find(a => a.email === email);
+          const account = DEMO_ACCOUNTS.find((a) => a.email === email);
           if (!account || account.password !== credentials.password) {
             await bcrypt.compare(credentials.password, DUMMY_HASH); // timing safety
             throw new Error('INVALID_CREDENTIALS');
