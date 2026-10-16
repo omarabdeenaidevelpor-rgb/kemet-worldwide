@@ -2,3 +2,21 @@
  M .out2.txt
 ?? .git-out.txt
 ?? do-git.bat
+=== ADD ALL ===
+warning: in the working copy of '.out2.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.git-out.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'do-git.bat', LF will be replaced by CRLF the next time Git touches it
+=== COMMIT ===
+[main c9a0ab8] fix: TypeScript build errors + demo mode improvements
+ 3 files changed, 33 insertions(+)
+ create mode 100644 .git-out.txt
+ create mode 100644 do-git.bat
+=== PUSH ===
+To https://github.com/omarabdeenaidevelpor-rgb/kemet-worldwide.git
+ ! [rejected]        main -> main (non-fast-forward)
+error: failed to push some refs to 'https://github.com/omarabdeenaidevelpor-rgb/kemet-worldwide.git'
+hint: Updates were rejected because the tip of your current branch is behind
+hint: its remote counterpart. If you want to integrate the remote changes,
+hint: use 'git pull' before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+=== RESULT: 1 ===
