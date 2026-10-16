@@ -34,7 +34,7 @@ export function ShipmentDetail({ id }: { id: string }) {
   const locale = lang === 'ar' ? 'ar-EG' : 'en-US';
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'overview' | 'tracking' | 'incidents' | 'finance' | 'documents' | 'history'>('overview');
+  const [tab, setTab] = useState<'overview' | 'containers' | 'tracking' | 'incidents' | 'finance' | 'documents' | 'history'>('overview');
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
@@ -124,13 +124,69 @@ export function ShipmentDetail({ id }: { id: string }) {
 
       {/* Tabs */}
       <div className="border-b flex gap-6 overflow-x-auto">
-        {(['overview', 'tracking', 'incidents', ...(canViewFinance ? ['finance' as const] : []), 'documents', 'history'] as const).map((tab_) => (
+        {(['overview', 'containers', 'tracking', 'incidents', ...(canViewFinance ? ['finance' as const] : []), 'documents', 'history'] as const).map((tab_) => (
           <button key={tab_} onClick={() => setTab(tab_)}
             className={`pb-3 text-sm font-medium capitalize whitespace-nowrap transition-colors border-b-2 -mb-px ${
               tab === tab_ ? 'border-brand-navy text-brand-navy dark:border-brand-accent dark:text-brand-accent' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}>{tab_}</button>
         ))}
       </div>
+
+      {(data.pendingDocuments || data.latestRemark) && (
+        <div className="grid gap-3 md:grid-cols-2">
+          {data.latestRemark && (
+            <div className="rounded-xl border border-brand-blue/20 bg-brand-blue/5 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-brand-blue dark:text-brand-accent">
+                {lang === 'ar' ? 'آخر تحديث' : 'Latest update'}
+              </p>
+              <p className="mt-1 text-sm">{data.latestRemark}</p>
+            </div>
+          )}
+          {data.pendingDocuments && (
+            <div className="rounded-xl border border-orange-300/60 bg-orange-50 p-4 dark:bg-orange-950/20">
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-400">
+                {lang === 'ar' ? 'مستندات معلّقة' : 'Pending documents'}
+              </p>
+              <p className="mt-1 text-sm">{data.pendingDocuments}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'containers' && (
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead className="border-b bg-muted/40 text-xs uppercase text-muted-foreground">
+                <tr>
+                  {(lang === 'ar'
+                    ? ['الحاوية / الوحدة', 'النوع', 'بوليصة الشحن', 'الشاحنة', 'التفريغ', 'التحميل', 'وصول ملابا', 'وصول ليرا', 'الحالة']
+                    : ['Container / Unit', 'Type', 'B/L · AWB', 'Truck', 'Discharged', 'Loaded out', 'ETA Malaba', 'ETA Lira', 'Status']
+                  ).map((h) => <th key={h} className="px-4 py-3 text-start font-medium">{h}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {(data.containers ?? []).length === 0 && (
+                  <tr><td colSpan={9} className="py-10 text-center text-muted-foreground">{lang === 'ar' ? 'لا توجد حاويات' : 'No containers'}</td></tr>
+                )}
+                {(data.containers ?? []).map((c: any) => (
+                  <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-mono font-medium" dir="ltr">{c.containerNumber ?? '—'}</td>
+                    <td className="px-4 py-3">{c.unitType ?? '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs" dir="ltr">{c.billOfLading ?? '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs" dir="ltr">{c.truckNumber ?? '—'}</td>
+                    <td className="px-4 py-3">{formatDate(c.dischargeDate)}</td>
+                    <td className="px-4 py-3">{formatDate(c.loadedOutDate)}</td>
+                    <td className="px-4 py-3">{formatDate(c.etaBorder)}</td>
+                    <td className="px-4 py-3">{formatDate(c.etaDestination)}</td>
+                    <td className="px-4 py-3"><Badge variant="outline">{String(c.status).replace(/_/g, ' ')}</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       {tab === 'overview' && (
         <div className="grid gap-4 md:grid-cols-2">

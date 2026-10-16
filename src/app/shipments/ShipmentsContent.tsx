@@ -41,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function ShipmentsContent() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const router = useRouter();
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [total, setTotal] = useState(0);
@@ -74,8 +74,12 @@ export function ShipmentsContent() {
           {MODE_ICON[r.mode]} {r.mode}
         </span>
       ) },
-    { key: 'origin', header: t('shipments.origin'), sortable: true },
-    { key: 'destination', header: t('shipments.destination'), sortable: true },
+    { key: 'containers', header: lang === 'ar' ? 'الحاويات' : 'Units',
+      render: (r: Shipment) => <span className="tabular-nums">{(r as any)._count?.containers ?? 0}</span> },
+    { key: 'carrier', header: lang === 'ar' ? 'الخط الملاحي' : 'Line / Airline',
+      render: (r: Shipment) => <span className="text-xs">{(r as any).carrier ?? '—'}</span> },
+    { key: 'latestRemark', header: lang === 'ar' ? 'آخر تحديث' : 'Latest update',
+      render: (r: Shipment) => <span className="line-clamp-2 max-w-xs text-xs text-muted-foreground">{(r as any).latestRemark ?? '—'}</span> },
     { key: 'status', header: t('shipments.status'),
       render: (r: Shipment) => (
         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-600'}`}>

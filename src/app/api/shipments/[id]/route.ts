@@ -50,7 +50,8 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
           orderBy: { changedAt: 'desc' },
           include: { user: { select: { id: true, name: true } } },
         },
-        trackingEvents: { orderBy: { occurredAt: 'desc' }, take: 20 },
+        trackingEvents: { orderBy: { occurredAt: 'desc' }, take: 200 },
+        containers: { orderBy: { createdAt: 'asc' } },
         incidents: {
           select: { id: true, title: true, severity: true, status: true, reportedAt: true },
           orderBy: { reportedAt: 'desc' },

@@ -59,6 +59,20 @@ export async function GET(req: NextRequest) {
         { destination: { contains: search, mode: 'insensitive' } },
         { carrier: { contains: search, mode: 'insensitive' } },
         { containerNumber: { contains: search, mode: 'insensitive' } },
+        { billOfLading: { contains: search, mode: 'insensitive' } },
+        { airwayBill: { contains: search, mode: 'insensitive' } },
+        { customer: { legalName: { contains: search, mode: 'insensitive' } } },
+        {
+          containers: {
+            some: {
+              OR: [
+                { containerNumber: { contains: search, mode: 'insensitive' } },
+                { truckNumber: { contains: search, mode: 'insensitive' } },
+                { billOfLading: { contains: search, mode: 'insensitive' } },
+              ],
+            },
+          },
+        },
       ];
     }
     if (status) where.status = status;
@@ -70,11 +84,11 @@ export async function GET(req: NextRequest) {
         where,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ isOffloaded: 'asc' }, { docsReceivedDate: 'desc' }, { createdAt: 'desc' }],
         include: {
           customer: { select: { id: true, legalName: true, fileNumber: true } },
           assignedEmployee: { select: { id: true, name: true } },
-          _count: { select: { trackingEvents: true, incidents: true, documents: true } },
+          _count: { select: { trackingEvents: true, incidents: true, documents: true, containers: true } },
         },
       }),
       prisma.shipment.count({ where }),
