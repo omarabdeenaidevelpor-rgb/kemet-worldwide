@@ -161,7 +161,7 @@ export async function PATCH(req: NextRequest) {
 
     // ── DEMO MODE ────────────────────────────────────────────────────────────
     if (DEMO_MODE) {
-      return NextResponse.json({ data: { id: parsed.data.id, ...parsed.data } });
+      return NextResponse.json({ data: { ...parsed.data } });
     }
 
     // ── NORMAL MODE ──────────────────────────────────────────────────────────
